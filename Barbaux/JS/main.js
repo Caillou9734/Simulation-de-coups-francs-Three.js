@@ -41,8 +41,13 @@ var cameraParams = {
 
 var murParams = {
     color: "#b9b9b9",
+    emissive: "#000000",
     specular: "#222222",
-    shininess: 18,
+    shininess: 25,
+    opacity: 1.0,
+    transparent: false,
+    wireframe: false,
+    flatShading: false,
     joinCoeff: 0.58
 };
 
@@ -59,7 +64,7 @@ var curveParams = {
     quadOffsetZ: 5.4,
     cubicOffsetX: 1.8,
     cubicOffsetZ: 1.4,
-    junctionHeight: 4.8
+    junctionHeight: 2.5
 };
 
 var shotTargets = [];
@@ -81,24 +86,10 @@ function onWindowResize() {
 }
 
 function renduAnim() {
-    if (stats) {
-        stats.update();
-    }
-
+    if (stats) stats.update();
+    updateBallAnimation(); // Cadencé à 60 FPS synchrones
     rendu.render(scene, camera);
     requestAnimationFrame(renduAnim);
-}
-
-function gameTick() {
-    updateBallAnimation();
-}
-
-function addLineSegment(parent, start, end, color, lineWidth) {
-    var geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-    var material = new THREE.LineBasicMaterial({ color: color, linewidth: lineWidth || 1 });
-    var line = new THREE.Line(geometry, material);
-    parent.add(line);
-    return line;
 }
 
 function addBoxLine(parent, width, height, x, y, z) {
@@ -181,48 +172,113 @@ function createCylinderBetween(start, end, radiusTop, radiusBottom, material) {
     return mesh;
 }
 
+/**
+ * Construit un coude torique assurant une jointure G1 parfaite (quart de tore)
+ * entre un montant vertical et la barre horizontale.
+ */
+function createGoalCornerG1(xSide, zBarre, rTube, rCoude, material) {
+    // TorusGeometry(radiusMajeur, tubeRadius, radialSegments, tubularSegments, arc)
+    var torusGeom = new THREE.TorusGeometry(rCoude, rTube, 20, 24, Math.PI / 2);
+    var corner = new THREE.Mesh(torusGeom, material);
+    corner.castShadow = true;
+    corner.receiveShadow = true;
+
+    // Positionnement et orientation au sommet de l'équerre
+    if (xSide < 0) {
+        // Coin supérieur gauche (x = -3.66)
+        corner.position.set(-3.66 + rCoude, 0.0, zBarre - rCoude);
+        corner.quaternion.setFromRotationMatrix(
+            new THREE.Matrix4().makeBasis(
+                new THREE.Vector3(-1, 0, 0),
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(0, 1, 0)
+            )
+        );
+    } else {
+        // Coin supérieur droit (x = +3.66)
+        corner.position.set(3.66 - rCoude, 0.0, zBarre - rCoude);
+        corner.quaternion.setFromRotationMatrix(
+            new THREE.Matrix4().makeBasis(
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(0, -1, 0)
+            )
+        );
+    }
+    return corner;
+}
+
 function createGoal() {
     goalGroup = new THREE.Group();
 
-    var postMaterial = new THREE.MeshPhongMaterial({ color: 0xf2f2f2, shininess: 30 });
-    var netMaterial = new THREE.LineBasicMaterial({ color: 0xf0f0f0 });
+    var postMaterial = new THREE.MeshPhongMaterial({
+        color: 0xf5f5f5,
+        specular: 0x444444,
+        shininess: 40
+    });
+    var netMaterial = new THREE.LineBasicMaterial({
+        color: 0xdddddd,
+        linewidth: 1
+    });
 
-    var leftPostBase = new THREE.Vector3(-3.66, 0, 0);
-    var leftPostTop = new THREE.Vector3(-3.66, 0, 2.44);
-    var rightPostBase = new THREE.Vector3(3.66, 0, 0);
-    var rightPostTop = new THREE.Vector3(3.66, 0, 2.44);
-    var crossLeft = new THREE.Vector3(-3.66, 0, 2.44);
-    var crossRight = new THREE.Vector3(3.66, 0, 2.44);
+    var rTube = 0.06;      // Rayon tubulaire de 6 cm (diamètre réglementaire 12 cm)
+    var rCoude = 0.18;     // Rayon de courbure de la jointure G1
+    var zBarre = 2.44;     // Hauteur sous barre
+    var rearY = 1.50;      // Profondeur conforme au sujet et au rapport
 
-    goalGroup.add(createCylinderBetween(leftPostBase, leftPostTop, 0.07, 0.07, postMaterial));
-    goalGroup.add(createCylinderBetween(rightPostBase, rightPostTop, 0.07, 0.07, postMaterial));
-    goalGroup.add(createCylinderBetween(crossLeft, crossRight, 0.07, 0.07, postMaterial));
+    // 1. Montants verticaux (s'arrêtent à zBarre - rCoude pour laisser place au tore G1)
+    var postLeft = createCylinderBetween(
+        new THREE.Vector3(-3.66, 0, 0),
+        new THREE.Vector3(-3.66, 0, zBarre - rCoude),
+        rTube, rTube, postMaterial
+    );
+    var postRight = createCylinderBetween(
+        new THREE.Vector3(3.66, 0, 0),
+        new THREE.Vector3(3.66, 0, zBarre - rCoude),
+        rTube, rTube, postMaterial
+    );
+    goalGroup.add(postLeft);
+    goalGroup.add(postRight);
 
-    var rearY = 1.25;
-    var upperRearZ = 2.44;
-    var lowerRearZ = 0.0;
-    var backLeft = new THREE.Vector3(-3.66, rearY, 0);
-    var backRight = new THREE.Vector3(3.66, rearY, 0);
-    var backLeftTop = new THREE.Vector3(-3.66, rearY, upperRearZ);
-    var backRightTop = new THREE.Vector3(3.66, rearY, upperRearZ);
+    // 2. Barre transversale horizontale (entre les deux coudes)
+    var crossBar = createCylinderBetween(
+        new THREE.Vector3(-3.66 + rCoude, 0, zBarre),
+        new THREE.Vector3(3.66 - rCoude, 0, zBarre),
+        rTube, rTube, postMaterial
+    );
+    goalGroup.add(crossBar);
 
-    goalGroup.add(createCylinderBetween(leftPostTop, backLeftTop, 0.03, 0.03, postMaterial));
-    goalGroup.add(createCylinderBetween(rightPostTop, backRightTop, 0.03, 0.03, postMaterial));
-    goalGroup.add(createCylinderBetween(backLeft, backRight, 0.03, 0.03, postMaterial));
-    goalGroup.add(createCylinderBetween(backLeft, backLeftTop, 0.03, 0.03, postMaterial));
-    goalGroup.add(createCylinderBetween(backRight, backRightTop, 0.03, 0.03, postMaterial));
-    goalGroup.add(createCylinderBetween(backLeftTop, backRightTop, 0.03, 0.03, postMaterial));
+    // 3. Quarts de tore assurant le raccordement G1 aux deux angles supérieurs
+    goalGroup.add(createGoalCornerG1(-1, zBarre, rTube, rCoude, postMaterial));
+    goalGroup.add(createGoalCornerG1(1, zBarre, rTube, rCoude, postMaterial));
 
+    // 4. Armature arrière de soutien (tubes plus fins de 3.5 cm)
+    var backLeftBase = new THREE.Vector3(-3.66, rearY, 0);
+    var backRightBase = new THREE.Vector3(3.66, rearY, 0);
+    var backLeftTop = new THREE.Vector3(-3.66, rearY, zBarre);
+    var backRightTop = new THREE.Vector3(3.66, rearY, zBarre);
+
+    goalGroup.add(createCylinderBetween(new THREE.Vector3(-3.66, 0, zBarre), backLeftTop, 0.035, 0.035, postMaterial));
+    goalGroup.add(createCylinderBetween(new THREE.Vector3(3.66, 0, zBarre), backRightTop, 0.035, 0.035, postMaterial));
+    goalGroup.add(createCylinderBetween(backLeftBase, backRightBase, 0.035, 0.035, postMaterial));
+    goalGroup.add(createCylinderBetween(backLeftBase, backLeftTop, 0.035, 0.035, postMaterial));
+    goalGroup.add(createCylinderBetween(backRightBase, backRightTop, 0.035, 0.035, postMaterial));
+    goalGroup.add(createCylinderBetween(backLeftTop, backRightTop, 0.035, 0.035, postMaterial));
+
+    // 5. Les 4 ouvertures de 50 cm x 50 cm
     var holeRects = [
-        { x0: -3.66, x1: -3.16, z0: 1.94, z1: 2.44 },
-        { x0: 3.16, x1: 3.66, z0: 1.94, z1: 2.44 },
-        { x0: -3.66, x1: -3.16, z0: 0.00, z1: 0.50 },
-        { x0: 3.16, x1: 3.66, z0: 0.00, z1: 0.50 }
+        { name: "Lucarne gauche", x0: -3.66, x1: -3.16, z0: 1.94, z1: 2.44 },
+        { name: "Lucarne droite", x0: 3.16,  x1: 3.66,  z0: 1.94, z1: 2.44 },
+        { name: "Au sol gauche",  x0: -3.66, x1: -3.16, z0: 0.00, z1: 0.50 },
+        { name: "Au sol droite",  x0: 3.16,  x1: 3.66,  z0: 0.00, z1: 0.50 }
     ];
 
-    addNetPanel(goalGroup, -3.66, 3.66, 0.0, 2.44, rearY, holeRects, netMaterial, true);
-    addNetSide(goalGroup, -3.66, 0.0, rearY, 2.44, holeRects, netMaterial, -1);
-    addNetSide(goalGroup, 3.66, 0.0, rearY, 2.44, holeRects, netMaterial, 1);
+    // Filet arrière avec les 4 ouvertures cibles découpées
+    buildBackNetGrid(goalGroup, -3.66, 3.66, 0.0, 2.44, rearY, holeRects, netMaterial);
+
+    // Filets latéraux gauche et droit (plans fermés)
+    buildSideNetGrid(goalGroup, -3.66, 0.0, rearY, 2.44, netMaterial);
+    buildSideNetGrid(goalGroup, 3.66, 0.0, rearY, 2.44, netMaterial);
 
     scene.add(goalGroup);
 }
@@ -233,183 +289,291 @@ function addNetSegment(group, a, b, material) {
     group.add(line);
 }
 
-function segmentOverlapsHole(a0, a1, b0, b1, rect) {
-    var minA = Math.min(a0, a1);
-    var maxA = Math.max(a0, a1);
-    var minB = Math.min(b0, b1);
-    var maxB = Math.max(b0, b1);
-    return !(maxA < rect.x0 || minA > rect.x1 || maxB < rect.z0 || minB > rect.z1);
-}
+function addNetSegmentsOutsideIntervals(group, start, end, fixedCoordinate, intervals, material, isVertical) {
+    var cursor = start;
 
-function addNetPanel(group, xMin, xMax, zMin, zMax, yPos, holes, material, isBack) {
-    var xStep = 0.5;
-    var zStep = 0.5;
-    var x;
-    var z;
-    var xCount = Math.ceil((xMax - xMin) / xStep);
-    var zCount = Math.ceil((zMax - zMin) / zStep);
+    for (var i = 0; i < intervals.length; i++) {
+        var intervalStart = Math.max(start, intervals[i][0]);
+        var intervalEnd = Math.min(end, intervals[i][1]);
 
-    for (var xIndex = 0; xIndex <= xCount; xIndex++) {
-        x = Math.min(xMin + xIndex * xStep, xMax);
-        var zCursor = zMin;
-        for (var h = 0; h < holes.length; h++) {
-            var hole = holes[h];
-            if (segmentOverlapsHole(x, x, zCursor, zMax, hole)) {
-                if (zCursor < hole.z0) {
-                    addNetSegment(
-                        group,
-                        new THREE.Vector3(x, yPos, zCursor),
-                        new THREE.Vector3(x, yPos, hole.z0),
-                        material
-                    );
-                }
-                zCursor = hole.z1;
+        if (intervalStart > cursor) {
+            if (isVertical) {
+                addNetSegment(
+                    group,
+                    new THREE.Vector3(fixedCoordinate, material.yPos, cursor),
+                    new THREE.Vector3(fixedCoordinate, material.yPos, intervalStart),
+                    material.lineMaterial
+                );
+            } else {
+                addNetSegment(
+                    group,
+                    new THREE.Vector3(cursor, material.yPos, fixedCoordinate),
+                    new THREE.Vector3(intervalStart, material.yPos, fixedCoordinate),
+                    material.lineMaterial
+                );
             }
         }
-        if (zCursor < zMax) {
-            addNetSegment(
-                group,
-                new THREE.Vector3(x, yPos, zCursor),
-                new THREE.Vector3(x, yPos, zMax),
-                material
-            );
-        }
+
+        cursor = Math.max(cursor, intervalEnd);
     }
 
-    for (var zIndex = 0; zIndex <= zCount; zIndex++) {
-        z = Math.min(zMin + zIndex * zStep, zMax);
-        var xCursor = xMin;
-        for (var j = 0; j < holes.length; j++) {
-            var holeRect = holes[j];
-            if (segmentOverlapsHole(xCursor, xMax, z, z, holeRect)) {
-                if (xCursor < holeRect.x0) {
-                    addNetSegment(
-                        group,
-                        new THREE.Vector3(xCursor, yPos, z),
-                        new THREE.Vector3(holeRect.x0, yPos, z),
-                        material
-                    );
-                }
-                xCursor = holeRect.x1;
-            }
-        }
-        if (xCursor < xMax) {
+    if (cursor < end) {
+        if (isVertical) {
             addNetSegment(
                 group,
-                new THREE.Vector3(xCursor, yPos, z),
-                new THREE.Vector3(xMax, yPos, z),
-                material
+                new THREE.Vector3(fixedCoordinate, material.yPos, cursor),
+                new THREE.Vector3(fixedCoordinate, material.yPos, end),
+                material.lineMaterial
+            );
+        } else {
+            addNetSegment(
+                group,
+                new THREE.Vector3(cursor, material.yPos, fixedCoordinate),
+                new THREE.Vector3(end, material.yPos, fixedCoordinate),
+                material.lineMaterial
             );
         }
     }
 }
 
-function addNetSide(group, xFixed, yMin, yMax, zMax, holes, material, sideSign) {
-    var y;
-    var z;
-    var yStep = 0.5;
-    var zStep = 0.5;
-    var yCount = Math.ceil((yMax - yMin) / yStep);
-    var zCount = Math.ceil(zMax / zStep);
+function getHoleIntervals(holes, fixedCoordinate, firstAxis) {
+    var intervals = [];
 
-    for (var yIndex = 0; yIndex <= yCount; yIndex++) {
-        y = Math.min(yMin + yIndex * yStep, yMax);
-        addNetSegment(
+    for (var i = 0; i < holes.length; i++) {
+        var hole = holes[i];
+        var fixedMin = firstAxis ? hole.x0 : hole.z0;
+        var fixedMax = firstAxis ? hole.x1 : hole.z1;
+
+        if (fixedCoordinate > fixedMin && fixedCoordinate < fixedMax) {
+            intervals.push(firstAxis ? [hole.z0, hole.z1] : [hole.x0, hole.x1]);
+        }
+    }
+
+    intervals.sort(function (a, b) {
+        return a[0] - b[0];
+    });
+    return intervals;
+}
+
+/**
+ * Tisse le filet arrière à y = rearY en évidant les fenêtres de 50x50 cm.
+ */
+function buildBackNetGrid(group, xMin, xMax, zMin, zMax, yPos, holes, material) {
+    var step = 0.10; // Maille régulière de 10 cm
+    var xCount = Math.ceil((xMax - xMin) / step);
+    var zCount = Math.ceil((zMax - zMin) / step);
+    var netContext = {
+        yPos: yPos,
+        lineMaterial: material
+    };
+
+    // A. Génération des fils verticaux (x fixé, balayage de z)
+    for (var i = 0; i <= xCount; i++) {
+        var x = Number(Math.min(xMin + i * step, xMax).toFixed(3));
+        var verticalIntervals = getHoleIntervals(holes, x, true);
+        addNetSegmentsOutsideIntervals(
             group,
-            new THREE.Vector3(xFixed, y, 0),
-            new THREE.Vector3(xFixed, y, zMax),
-            material
+            zMin,
+            zMax,
+            x,
+            verticalIntervals,
+            netContext,
+            true
         );
     }
 
-    for (var zIndex = 0; zIndex <= zCount; zIndex++) {
-        z = Math.min(zIndex * zStep, zMax);
+    // B. Génération des fils horizontaux (z fixé, balayage de x)
+    for (var j = 0; j <= zCount; j++) {
+        var z = Number(Math.min(zMin + j * step, zMax).toFixed(3));
+        var horizontalIntervals = getHoleIntervals(holes, z, false);
+        addNetSegmentsOutsideIntervals(
+            group,
+            xMin,
+            xMax,
+            z,
+            horizontalIntervals,
+            netContext,
+            false
+        );
+    }
+
+    // Cadres des ouvertures : les bords ne sont jamais supprimés.
+    for (var h = 0; h < holes.length; h++) {
+        var hole = holes[h];
         addNetSegment(
             group,
-            new THREE.Vector3(xFixed, yMin, z),
-            new THREE.Vector3(xFixed, yMax, z),
+            new THREE.Vector3(hole.x0, yPos, hole.z0),
+            new THREE.Vector3(hole.x1, yPos, hole.z0),
+            material
+        );
+        addNetSegment(
+            group,
+            new THREE.Vector3(hole.x0, yPos, hole.z1),
+            new THREE.Vector3(hole.x1, yPos, hole.z1),
+            material
+        );
+        addNetSegment(
+            group,
+            new THREE.Vector3(hole.x0, yPos, hole.z0),
+            new THREE.Vector3(hole.x0, yPos, hole.z1),
+            material
+        );
+        addNetSegment(
+            group,
+            new THREE.Vector3(hole.x1, yPos, hole.z0),
+            new THREE.Vector3(hole.x1, yPos, hole.z1),
             material
         );
     }
 }
 
-function createLatheProfile(sectionHeight, radiusStart, radiusEnd, bulge, joinCoeff) {
-    var points = [];
-    var steps = 10;
-    var i;
-    for (i = 0; i <= steps; i++) {
-        var t = i / steps;
-        var smooth = t * t * (3 - 2 * t);
-        var wave = Math.sin(Math.PI * t) * bulge * joinCoeff;
-        var radius = radiusStart + (radiusEnd - radiusStart) * smooth + wave;
-        var height = sectionHeight * t;
-        points.push(new THREE.Vector2(Math.max(0.03, radius), height));
+/**
+ * Tisse le filet latéral (x fixe = ±3.66 m) de façon uniforme.
+ */
+function buildSideNetGrid(group, xFixed, yMin, yMax, zMax, material) {
+    var step = 0.10;
+    var yCount = Math.ceil((yMax - yMin) / step);
+    var zCount = Math.ceil(zMax / step);
+
+    for (var i = 0; i <= yCount; i++) {
+        var y = Number(Math.min(yMin + i * step, yMax).toFixed(3));
+        addNetSegment(group, new THREE.Vector3(xFixed, y, 0), new THREE.Vector3(xFixed, y, zMax), material);
     }
-    return points;
+
+    for (var j = 0; j <= zCount; j++) {
+        var z = Number(Math.min(j * step, zMax).toFixed(3));
+        addNetSegment(group, new THREE.Vector3(xFixed, yMin, z), new THREE.Vector3(xFixed, yMax, z), material);
+    }
 }
 
+/**
+ * Évalue un point d'une courbe de Bézier cubique 2D (r, z) pour t dans [0, 1].
+ */
+function evalBezierCubique2D(p0, p1, p2, p3, t) {
+    var mt = 1 - t;
+    var mt2 = mt * mt;
+    var t2 = t * t;
+    var r = mt2 * mt * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t2 * t * p3.x;
+    var z = mt2 * mt * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t2 * t * p3.y;
+    return new THREE.Vector2(r, z);
+}
+
+/**
+ * Construit un mannequin constitué de 4 surfaces de révolution coaxiales
+ * raccordées en G1, avec fermeture rigoureuse en tête (r = 0) et au sol (z = 0).
+ */
 function createMannequin(height, materialOptions, joinCoeff) {
     var group = new THREE.Group();
     var bodyMaterial = new THREE.MeshPhongMaterial(materialOptions);
-    var zJunction = height * 0.55; // Hauteur de jonction (taille/hanches)
-    var rJunction = 0.22;          // Rayon partagé au raccord (continuité C0)
-    var steps = 15;
-    var i;
+    var latheSegments = 32;
 
-    // Profil 1 (Bas) : de z = 0 à zJunction
-    // Tangente finale au point de contact : pente slopeJoin
-    var slopeJoin = 0.15;
-    var pointsBas = [];
-    for (i = 0; i <= steps; i++) {
+    // Repères verticaux fondamentaux
+    var z0 = 0.0;
+    var z1 = 0.10;
+    var zJunction = height * 0.54; // Hauteur de jonction (taille) ~0.95m - 1.00m
+    var zCou = height * 0.84;      // Base du cou
+    var zSommet = height;          // Sommet de la tête
+
+    var rBase = 0.12;
+    var rJunction = 0.22;
+    var rCou = 0.085;
+
+    // =========================================================================
+    // SURFACE 1 : Base / Socle cylindrique (z0 à z1)
+    // Surface de révolution d'axe local Y (qui devient Z après rotation de pi/2)
+    // =========================================================================
+    var baseGeom = new THREE.CylinderGeometry(rBase, rBase, z1 - z0, latheSegments, 1, true);
+    var meshBase = new THREE.Mesh(baseGeom, bodyMaterial);
+    meshBase.rotation.x = Math.PI / 2;
+    meshBase.position.z = (z0 + z1) / 2;
+    meshBase.castShadow = true;
+    meshBase.receiveShadow = true;
+    group.add(meshBase);
+
+    // =========================================================================
+    // SURFACE 2 : Lathe 1 - Jambes et Bassin (Bézier cubique de z1 à zJunction)
+    // Continuité G1 en z1 : poignée A1 verticale pour tangenter le cylindre de base
+    // =========================================================================
+    var A0 = new THREE.Vector2(rBase, z1);
+    var A1 = new THREE.Vector2(rBase, z1 + 0.25 * (zJunction - z1));
+    var A2 = new THREE.Vector2(rJunction + 0.04, zJunction - 0.20);
+    var A3 = new THREE.Vector2(rJunction, zJunction);
+
+    var pointsLathe1 = [];
+    var steps = 16;
+    for (var i = 0; i <= steps; i++) {
         var t = i / steps;
-        var z = zJunction * t;
-        var r = 0.12 + (rJunction - 0.12) * t + 0.04 * Math.sin(Math.PI * t);
-        pointsBas.push(new THREE.Vector2(r, z));
+        pointsLathe1.push(evalBezierCubique2D(A0, A1, A2, A3, t));
     }
 
-    // Profil 2 (Haut) : de zJunction à height
-    // Tangente initiale colinéaire : pente ajustée par joinCoeff (continuité G1)
-    var pointsHaut = [];
-    var hautHeight = height - zJunction;
-    for (i = 0; i <= steps; i++) {
-        var u = i / steps;
-        var zH = zJunction + hautHeight * u;
-        var rH = rJunction + (slopeJoin * joinCoeff) * (hautHeight * u) 
-                 + (0.10 - rJunction - slopeJoin * joinCoeff * hautHeight) * (u * u)
-                 + 0.05 * Math.sin(Math.PI * u);
-        pointsHaut.push(new THREE.Vector2(Math.max(0.04, rH), zH));
+    var meshLathe1 = new THREE.Mesh(new THREE.LatheGeometry(pointsLathe1, latheSegments), bodyMaterial);
+    meshLathe1.rotation.x = Math.PI / 2;
+    meshLathe1.castShadow = true;
+    meshLathe1.receiveShadow = true;
+    group.add(meshLathe1);
+
+    // =========================================================================
+    // SURFACE 3 : Lathe 2 - Buste et Carrure (Bézier cubique de zJunction à zCou)
+    // Raccordement G1 parfait : B1 = B0 + joinCoeff * (A3 - A2)
+    // =========================================================================
+    var B0 = A3.clone();
+    var dirTangent = new THREE.Vector2().subVectors(A3, A2);
+    var B1 = new THREE.Vector2().addVectors(B0, dirTangent.clone().multiplyScalar(joinCoeff));
+    var B2 = new THREE.Vector2(rCou + 0.08, zCou - 0.12);
+    var B3 = new THREE.Vector2(rCou, zCou); // Tangente verticale au cou
+
+    var pointsLathe2 = [];
+    for (var j = 0; j <= steps; j++) {
+        var u = j / steps;
+        pointsLathe2.push(evalBezierCubique2D(B0, B1, B2, B3, u));
     }
 
-    var latheSettings = 24;
-    var meshBas = new THREE.Mesh(new THREE.LatheGeometry(pointsBas, latheSettings), bodyMaterial);
-    var meshHaut = new THREE.Mesh(new THREE.LatheGeometry(pointsHaut, latheSettings), bodyMaterial);
+    var meshLathe2 = new THREE.Mesh(new THREE.LatheGeometry(pointsLathe2, latheSegments), bodyMaterial);
+    meshLathe2.rotation.x = Math.PI / 2;
+    meshLathe2.castShadow = true;
+    meshLathe2.receiveShadow = true;
+    group.add(meshLathe2);
 
-    meshBas.rotation.x = Math.PI / 2;
-    meshHaut.rotation.x = Math.PI / 2;
-    meshBas.castShadow = true;
-    meshHaut.castShadow = true;
+    // =========================================================================
+    // SURFACE 4 : Tête profilée (Lathe fermée de zCou à zSommet)
+    // Raccordement G1 en zCou (tangente verticale) et fermeture en pointe nulle (r = 0)
+    // =========================================================================
+    var C0 = B3.clone();
+    var C1 = new THREE.Vector2(rCou, zCou + 0.08); // Poignée verticale : continuité G1 avec le cou
+    var C2 = new THREE.Vector2(0.06, zSommet);      // Poignée horizontale au sommet
+    var C3 = new THREE.Vector2(0.00, zSommet);      // Pôle fermé : r = 0 strictement
 
-    group.add(meshBas);
-    group.add(meshHaut);
+    var pointsTete = [];
+    for (var k = 0; k <= steps; k++) {
+        var s = k / steps;
+        pointsTete.push(evalBezierCubique2D(C0, C1, C2, C3, s));
+    }
+
+    var meshTete = new THREE.Mesh(new THREE.LatheGeometry(pointsTete, latheSegments), bodyMaterial);
+    meshTete.rotation.x = Math.PI / 2;
+    meshTete.castShadow = true;
+    meshTete.receiveShadow = true;
+    group.add(meshTete);
 
     return group;
 }
 
 function updateMurMaterial() {
-    if (!wallGroup) {
-        return;
-    }
+    if (!wallGroup) return;
 
-    var i;
-    for (i = 0; i < wallGroup.children.length; i++) {
+    for (var i = 0; i < wallGroup.children.length; i++) {
         var mannequin = wallGroup.children[i];
-        var j;
-        for (j = 0; j < mannequin.children.length; j++) {
+        for (var j = 0; j < mannequin.children.length; j++) {
             var mesh = mannequin.children[j];
             if (mesh.material) {
                 mesh.material.color = createColor(murParams.color);
+                mesh.material.emissive = createColor(murParams.emissive);
                 mesh.material.specular = createColor(murParams.specular);
                 mesh.material.shininess = murParams.shininess;
+                mesh.material.opacity = murParams.opacity;
+                mesh.material.transparent = murParams.transparent;
+                mesh.material.wireframe = murParams.wireframe;
+                mesh.material.flatShading = murParams.flatShading;
                 mesh.material.needsUpdate = true;
             }
         }
@@ -420,6 +584,7 @@ function createWall(startPoint) {
     wallGroup = new THREE.Group();
 
     var heights = [1.75, 1.80, 1.86, 1.78, 1.90];
+    wallGroup.userData.wallTopZ = Math.max.apply(null, heights);
     // Joueurs espacés de 55 cm et centrés autour de 0
     var xPositions = [-1.24, -0.62, 0.0, 0.62, 1.24];
     var goalCenter = new THREE.Vector3(0, 0, 0);
@@ -430,13 +595,19 @@ function createWall(startPoint) {
     var wallCenter = wallStart.clone().add(ballToGoal.multiplyScalar(9.15));
     wallGroup.position.copy(wallCenter);
     wallGroup.rotation.z = Math.atan2(-ballToGoal.x, -ballToGoal.y);
+    wallGroup.userData.busteRadius = 0.22;
 
     var i;
     for (i = 0; i < 5; i++) {
         var mannequin = createMannequin(heights[i], {
             color: murParams.color,
+            emissive: murParams.emissive,
             specular: murParams.specular,
-            shininess: murParams.shininess
+            shininess: murParams.shininess,
+            opacity: murParams.opacity,
+            transparent: murParams.transparent,
+            wireframe: murParams.wireframe,
+            flatShading: murParams.flatShading
         }, murParams.joinCoeff);
 
         mannequin.position.set(xPositions[i], 0, 0);
@@ -448,52 +619,86 @@ function createWall(startPoint) {
 
 function createKeeper() {
     keeperGroup = new THREE.Group();
-    var wallCoversRightSide = wallGroup.position.x + 3.6 > 0;
-    var keeperSide = wallCoversRightSide ? -1 : 1;
-    keeperGroup.position.set(keeperSide * 2.3, -0.3, 0);
+
+    // Analyse de la zone couverte par le mur pour décaler le gardien sur l'angle ouvert
+    var wallX = wallGroup ? wallGroup.position.x : 0;
+    // Si le mur couvre la droite (x > 0), le gardien protège la gauche (x < 0), et inversement
+    var keeperSide = wallGroup && wallGroup.userData.openSide ?
+        wallGroup.userData.openSide :
+        ((wallX >= 0) ? -1 : 1);
+    var keeperPosX = keeperSide * 1.85;
+
+    // Le gardien est rigoureusement ancré sur la ligne de but : y = 0, z = 0
+    keeperGroup.position.set(keeperPosX, 0.0, 0.0);
 
     var keeperMaterial = new THREE.MeshPhongMaterial({
-        color: 0xeaeaea,
-        shininess: 35
+        color: 0x1565c0, // Maillot distinctif
+        specular: 0x333333,
+        shininess: 30
     });
     var skinMaterial = new THREE.MeshPhongMaterial({
-        color: 0xffddbb,
-        shininess: 12
+        color: 0xffccaa,
+        shininess: 15
     });
 
-    var bodyBase = new THREE.Vector3(0, 0, 0.15);
-    var bodyTop = new THREE.Vector3(0, 0, 1.45);
-    var leftLegTop = new THREE.Vector3(-0.18, 0, 0.95);
-    var leftLegBase = new THREE.Vector3(-0.38, 0, 0.0);
-    var rightLegTop = new THREE.Vector3(0.18, 0, 0.95);
-    var rightLegBase = new THREE.Vector3(0.38, 0, 0.0);
-    var leftArmTop = new THREE.Vector3(-0.52, 0, 1.3);
-    var leftArmBase = new THREE.Vector3(-1.05, 0, 1.0);
-    var rightArmTop = new THREE.Vector3(0.52, 0, 1.3);
-    var rightArmBase = new THREE.Vector3(1.05, 0, 1.0);
+    // 1. Deux cylindres pour les jambes (hauteur 0.90 m, rayon 0.08 m)
+    var leftLeg = createCylinderBetween(
+        new THREE.Vector3(-0.22, 0, 0.0),
+        new THREE.Vector3(-0.15, 0, 0.90),
+        0.08, 0.08, keeperMaterial
+    );
+    var rightLeg = createCylinderBetween(
+        new THREE.Vector3(0.22, 0, 0.0),
+        new THREE.Vector3(0.15, 0, 0.90),
+        0.08, 0.08, keeperMaterial
+    );
+    keeperGroup.add(leftLeg);
+    keeperGroup.add(rightLeg);
 
-    keeperGroup.add(createCylinderBetween(leftLegBase, leftLegTop, 0.08, 0.09, keeperMaterial));
-    keeperGroup.add(createCylinderBetween(rightLegBase, rightLegTop, 0.08, 0.09, keeperMaterial));
-    keeperGroup.add(createCylinderBetween(bodyBase, bodyTop, 0.14, 0.16, keeperMaterial));
-    keeperGroup.add(createCylinderBetween(leftArmBase, leftArmTop, 0.055, 0.065, keeperMaterial));
-    keeperGroup.add(createCylinderBetween(rightArmBase, rightArmTop, 0.055, 0.065, keeperMaterial));
+    // 2. Un cylindre pour le corps / buste (de z = 0.90 m à z = 1.55 m)
+    var body = createCylinderBetween(
+        new THREE.Vector3(0, 0, 0.90),
+        new THREE.Vector3(0, 0, 1.55),
+        0.16, 0.16, keeperMaterial
+    );
+    keeperGroup.add(body);
 
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 16), skinMaterial);
-    head.position.set(0, 0, 1.78);
-    head.castShadow = true;
-    keeperGroup.add(head);
+    // 3. Une sphère pour la tête (rayon 0.14 m, centrée à z = 1.72 m)
+    var headGeom = new THREE.SphereGeometry(0.14, 20, 16);
+    var headMesh = new THREE.Mesh(headGeom, skinMaterial);
+    headMesh.position.set(0, 0, 1.72);
+    headMesh.castShadow = true;
+    keeperGroup.add(headMesh);
 
-    var gloveLeft = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 12), keeperMaterial);
-    gloveLeft.position.set(-1.12, 0, 1.0);
-    keeperGroup.add(gloveLeft);
+    // 4. Deux cylindres pour les bras (en extension vers l'avant/côtés pour l'interception)
+    var leftArm = createCylinderBetween(
+        new THREE.Vector3(-0.18, 0, 1.45),
+        new THREE.Vector3(-0.65, -0.20, 1.15),
+        0.06, 0.06, keeperMaterial
+    );
+    var rightArm = createCylinderBetween(
+        new THREE.Vector3(0.18, 0, 1.45),
+        new THREE.Vector3(0.65, -0.20, 1.15),
+        0.06, 0.06, keeperMaterial
+    );
+    keeperGroup.add(leftArm);
+    keeperGroup.add(rightArm);
 
-    var gloveRight = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 12), keeperMaterial);
-    gloveRight.position.set(1.12, 0, 1.0);
-    keeperGroup.add(gloveRight);
+    // Gants de protection
+    var gloveGeom = new THREE.SphereGeometry(0.08, 14, 12);
+    var gloveL = new THREE.Mesh(gloveGeom, skinMaterial);
+    gloveL.position.set(-0.65, -0.20, 1.15);
+    var gloveR = new THREE.Mesh(gloveGeom, skinMaterial);
+    gloveR.position.set(0.65, -0.20, 1.15);
+    keeperGroup.add(gloveL);
+    keeperGroup.add(gloveR);
 
-    keeperCatchPoint.set(keeperSide * 1.12, 0, 1.0).add(keeperGroup.position);
-    keeperGroup.userData.catchPoint = keeperCatchPoint.clone();
     scene.add(keeperGroup);
+
+    // Point de capture en coordonnées monde, exactement entre les deux gants.
+    keeperCatchPoint.set(0, -0.20, 1.15);
+    keeperGroup.updateMatrixWorld(true);
+    keeperGroup.localToWorld(keeperCatchPoint);
 }
 
 function createBall() {
@@ -509,14 +714,14 @@ function createBall() {
 
 function createShotTargets() {
     shotTargets = [
-        { name: "Lucarne gauche", points: 1, position: new THREE.Vector3(-3.42, 1.25, 2.18) },
-        { name: "Lucarne droite", points: 1, position: new THREE.Vector3(3.42, 1.25, 2.18) },
-        { name: "Au sol gauche", points: 2, position: new THREE.Vector3(-3.42, 1.25, 0.22) },
-        { name: "Au sol droite", points: 2, position: new THREE.Vector3(3.42, 1.25, 0.22) }
+        { name: "Lucarne gauche", points: 1, position: new THREE.Vector3(-3.41, 1.50, 2.19) },
+        { name: "Lucarne droite", points: 1, position: new THREE.Vector3(3.41, 1.50, 2.19) },
+        { name: "Au sol gauche",  points: 2, position: new THREE.Vector3(-3.41, 1.50, 0.25) },
+        { name: "Au sol droite",  points: 2, position: new THREE.Vector3(3.41, 1.50, 0.25) }
     ];
 }
 
-function rebuildDefenders(startPoint) {
+function rebuildDefenders(startPoint, openSide) {
     if (wallGroup) {
         scene.remove(wallGroup);
     }
@@ -524,12 +729,14 @@ function rebuildDefenders(startPoint) {
         scene.remove(keeperGroup);
     }
     createWall(startPoint);
+    wallGroup.userData.openSide = openSide || -1;
     createKeeper();
 }
 
 function chooseShotOutcome(target) {
     var wallHit = Math.random() < 0.25;
-    var keeperSave = !wallHit && Math.random() < 0.3;
+    var keeperSave = !wallHit && Math.random() < 0.30;
+
     var outcome = {
         targetName: target.name,
         result: "But",
@@ -540,14 +747,10 @@ function chooseShotOutcome(target) {
     if (wallHit) {
         outcome.result = "Mur";
         outcome.points = 0;
-        // Le ballon est repoussé par le mur et retombe au sol (Z = 0.11 m, rayon de la balle)
-        // Le mur étant à Y ≈ -12.8 m, le contre retombe devant le mur à Y ≈ -13.5 m
-        outcome.finishPoint = new THREE.Vector3(1.1, -15.2, 0.11);
-
+        // Calculé dynamiquement dans buildShotPath selon le mannequin touché
     } else if (keeperSave) {
         outcome.result = "Arret gardien";
         outcome.points = 0;
-        // Le ballon arrive directement dans les gants du gardien
         outcome.finishPoint = keeperCatchPoint.clone();
     }
 
@@ -555,53 +758,98 @@ function chooseShotOutcome(target) {
 }
 
 function buildShotPath(startPoint, finishPoint, isWallHit) {
-    // 1. Cas du tir contré par le mur : le ballon tape le torse et rebondit vers l'avant
+    var goalCenter = new THREE.Vector3(0, 0, 0);
+    var ballToGoal = new THREE.Vector3().subVectors(goalCenter, startPoint).normalize();
+
+    // =========================================================================
+    // CAS 1 : TIR CONTRÉ PAR LE MUR (Rupture C1, zéro pénétration, arrêt au sol)
+    // =========================================================================
     if (isWallHit) {
-        // Point d'impact sur le mur (torse d'un mannequin à 1,35 m de haut)
-        var p2 = new THREE.Vector3(0.55, -12.8, 1.35);
-        var p1 = new THREE.Vector3(
-            startPoint.x + (p2.x - startPoint.x) * 0.5,
-            startPoint.y + (p2.y - startPoint.y) * 0.5,
-            0.8
+        // Choix du défenseur heurté (mannequin central du mur)
+        var hitDummyLocalX = 0.0;
+        var wallNormal = new THREE.Vector3(-ballToGoal.y, ballToGoal.x, 0);
+
+        // Position du centre du buste du mannequin cible
+        var dummyCenter = wallGroup.position.clone().add(wallNormal.clone().multiplyScalar(hitDummyLocalX));
+        dummyCenter.z = 1.30; // Altitude du buste
+
+        // Impact sur l'enveloppe extérieure avant (rayon torse 0.22m + rayon balle 0.11m)
+        var busteRadius = wallGroup.userData.busteRadius || 0.22;
+        var ballRadius = 0.11;
+        var impactPoint = dummyCenter.clone().sub(
+            ballToGoal.clone().multiplyScalar(busteRadius + ballRadius)
         );
 
-        // Rebond géométrique vers l'avant (vers le tireur, Y plus négatif)
-        var q1 = new THREE.Vector3(0.8, -13.8, 1.1);
-        var q2 = new THREE.Vector3(1.0, -14.6, 0.4);
+        // Arc 1 (Bézier quadratique vers le point d'impact)
+        var p1 = new THREE.Vector3(
+            startPoint.x + (impactPoint.x - startPoint.x) * 0.5,
+            startPoint.y + (impactPoint.y - startPoint.y) * 0.5,
+            0.95
+        );
+        var curve1 = new THREE.QuadraticBezierCurve3(startPoint, p1, impactPoint);
 
-        var curve1 = new THREE.QuadraticBezierCurve3(startPoint, p1, p2);
-        var curve2 = new THREE.CubicBezierCurve3(p2, q1, q2, finishPoint);
-        return {
-            curve1: curve1,
-            curve2: curve2
-        };
+        // Arc 2 (Bézier cubique de renvoi : rebond vers l'avant et retombée au sol)
+        // Point d'arrêt final au sol (z = 0.11 m) à ~3m en avant du mur
+        var groundRestPoint = impactPoint.clone()
+            .sub(ballToGoal.clone().multiplyScalar(3.2))
+            .add(wallNormal.clone().multiplyScalar(0.6));
+        groundRestPoint.z = 0.11; // Arrêt net sur la pelouse
+
+        // Points de contrôle assurant une redescente naturelle
+        var q1 = impactPoint.clone().sub(ballToGoal.clone().multiplyScalar(0.8));
+        q1.z = impactPoint.z + 0.15; // Léger cabrement initial au rebond
+
+        var q2 = groundRestPoint.clone().add(new THREE.Vector3(0, 0, 0.45));
+
+        var curve2 = new THREE.CubicBezierCurve3(impactPoint, q1, q2, groundRestPoint);
+
+        return { curve1: curve1, curve2: curve2, finishPoint: groundRestPoint };
     }
 
-    // 2. Cas normal (But ou Arrêt gardien) : passage fluide au-dessus du mur avec continuité C1/G1
+    // =========================================================================
+    // CAS 2 : TRAJECTOIRE NORMALE (But ou Arrêt gardien avec continuité C1/G1)
+    // =========================================================================
+    var minClearanceZ = (wallGroup && wallGroup.userData.wallTopZ ?
+        wallGroup.userData.wallTopZ : 1.90) + 0.35;
+    var p2Z = Math.max(minClearanceZ, curveParams.junctionHeight);
+
     var p2 = new THREE.Vector3(
-        THREE.Math.clamp(finishPoint.x * 0.18, -1.2, 1.2),
-        -12,
-        THREE.Math.clamp(curveParams.junctionHeight * 0.5, 2.2, 2.6)
-    );
-    var p1 = new THREE.Vector3(
-        startPoint.x + (p2.x - startPoint.x) * 0.58 + THREE.Math.clamp(curveParams.quadOffsetX * 0.08, -0.5, 0.5),
-        startPoint.y + (p2.y - startPoint.y) * 0.48,
-        THREE.Math.clamp(3.0 + curveParams.quadOffsetZ * 0.04, 2.8, 3.2)
-    );
-    let Q1 = p2.clone().add(new THREE.Vector3().subVectors(p2, p1).multiplyScalar(2 / 3));
-    var q2 = new THREE.Vector3(
-        finishPoint.x * 0.72 + p2.x * 0.28 + THREE.Math.clamp(curveParams.cubicOffsetX * 0.08, -0.35, 0.35),
-        -4,
-        THREE.Math.clamp(p2.z * 0.52 + finishPoint.z * 0.48 + curveParams.cubicOffsetZ * 0.03, 0.15, 2.4)
+        THREE.Math.clamp(finishPoint.x * 0.25, -1.0, 1.0),
+        wallGroup ? wallGroup.position.y : -12.85,
+        p2Z
     );
 
-    var curve1 = new THREE.QuadraticBezierCurve3(startPoint, p1, p2);
-    var curve2 = new THREE.CubicBezierCurve3(p2, Q1, q2, finishPoint);
+    var p1 = new THREE.Vector3(
+        startPoint.x + (p2.x - startPoint.x) * 0.55 + THREE.Math.clamp(curveParams.quadOffsetX * 0.08, -0.6, 0.6),
+        startPoint.y + (p2.y - startPoint.y) * 0.48,
+        THREE.Math.clamp(3.10 + curveParams.quadOffsetZ * 0.04, 2.85, 3.35)
+    );
+
+    // Formule exacte de raccordement différentiel C1 : Q1 = P2 + (2/3)*(P2 - P1)
+    var Q1 = p2.clone().add(new THREE.Vector3().subVectors(p2, p1).multiplyScalar(2 / 3));
+
+    var q2 = new THREE.Vector3(
+        finishPoint.x * 0.70 + p2.x * 0.30 + THREE.Math.clamp(curveParams.cubicOffsetX * 0.08, -0.4, 0.4),
+        -4.0,
+        THREE.Math.clamp(p2.z * 0.50 + finishPoint.z * 0.50 + curveParams.cubicOffsetZ * 0.03, 0.25, 2.40)
+    );
+
     return {
-        curve1: curve1,
-        curve2: curve2
+        curve1: new THREE.QuadraticBezierCurve3(startPoint, p1, p2),
+        curve2: new THREE.CubicBezierCurve3(p2, Q1, q2, finishPoint),
+        finishPoint: finishPoint
     };
 }
+
+function finishShot() {
+    shotActive = false;
+    currentBallPos = defaultStart.clone();
+    ballGroup.position.copy(currentBallPos);
+}
+
+var shotResting = false;
+var restStartTime = 0;
+var restDuration = 1200; // 1,2 seconde d'arrêt visible net au sol ou dans les bras
 
 function startShot() {
     if (shotIndex >= 5) {
@@ -612,73 +860,74 @@ function startShot() {
     var target = shotTargets[Math.floor(Math.random() * shotTargets.length)];
     var outcome = chooseShotOutcome(target);
     var startPoint = currentBallPos.clone();
-    rebuildDefenders(startPoint);
 
-    // On passe l'information du choc mur au générateur de courbe
-    var curves = buildShotPath(startPoint, outcome.finishPoint.clone(), outcome.result === "Mur");
+    // Le gardien couvre la cible en cas d'arrêt et anticipe le mauvais côté en cas de but.
+    var targetSide = target.position.x >= 0 ? 1 : -1;
+    var keeperSide = outcome.result === "Arret gardien" ? targetSide : -targetSide;
+    rebuildDefenders(startPoint, keeperSide);
+
+    // Le point d'arrivée d'un arrêt est celui des gants du gardien repositionné.
+    if (outcome.result === "Arret gardien") {
+        outcome.finishPoint = keeperCatchPoint.clone();
+    }
+
+    var curves = buildShotPath(startPoint, outcome.finishPoint, outcome.result === "Mur");
     shotCurve1 = curves.curve1;
     shotCurve2 = curves.curve2;
+    outcome.finishPoint = curves.finishPoint; // Coordonnées exactes synchronisées
+
     shotGlobalT = 0;
     shotActive = true;
+    shotResting = false;
     shotTime = performance.now();
 
     shotData.push(outcome);
     updateScoreboard(shotIndex, outcome);
     shotIndex += 1;
-}
-
-    var target = shotTargets[Math.floor(Math.random() * shotTargets.length)];
-    var outcome = chooseShotOutcome(target);
-    var startPoint = currentBallPos.clone();
-    rebuildDefenders(startPoint);
-
-    var curves = buildShotPath(startPoint, outcome.finishPoint.clone());
-    shotCurve1 = curves.curve1;
-    shotCurve2 = curves.curve2;
-    shotGlobalT = 0;
-    shotActive = true;
-    shotTime = performance.now();
-
-    shotData.push(outcome);
-    updateScoreboard(shotIndex, outcome);
-    shotIndex += 1;
-
-
-function finishShot() {
-    shotActive = false;
-    currentBallPos = defaultStart.clone();
-    ballGroup.position.copy(currentBallPos);
 }
 
 function updateBallAnimation() {
     var now = performance.now();
 
+    // Mode automatique : enchaînement après repos complet
     if (shotParams.mode === "Automatique" && !shotActive && shotIndex < 5 && now >= nextShotTime) {
         startShot();
     }
 
-    if (!shotActive) {
-        return;
-    }
+    if (!shotActive) return;
 
-    var elapsed = now - shotTime;
-    shotGlobalT = (elapsed / shotDuration) * 2;
-    if (shotGlobalT >= 2) {
-        shotGlobalT = 2;
-    }
+    // Phase 1 : Trajectoire en vol (t de 0 à 2)
+    if (!shotResting) {
+        var elapsed = now - shotTime;
+        shotGlobalT = (elapsed / shotDuration) * 2;
 
-    if (shotCurve1 && shotCurve2) {
-        if (shotGlobalT <= 1) {
-            currentBallPos.copy(shotCurve1.getPoint(shotGlobalT));
-        } else {
-            currentBallPos.copy(shotCurve2.getPoint(shotGlobalT - 1));
+        if (shotGlobalT >= 2) {
+            shotGlobalT = 2;
+            currentBallPos.copy(shotCurve2.getPoint(1));
+            ballGroup.position.copy(currentBallPos);
+
+            // Début de la phase d'arrêt obligatoire
+            shotResting = true;
+            restStartTime = now;
+            return;
         }
-        ballGroup.position.copy(currentBallPos);
-    }
 
-    if (shotGlobalT >= 2) {
-        finishShot();
-        nextShotTime = now + 650;
+        if (shotCurve1 && shotCurve2) {
+            if (shotGlobalT <= 1) {
+                currentBallPos.copy(shotCurve1.getPoint(shotGlobalT));
+            } else {
+                currentBallPos.copy(shotCurve2.getPoint(shotGlobalT - 1));
+            }
+            ballGroup.position.copy(currentBallPos);
+        }
+    }
+    // Phase 2 : Le ballon est immobile au sol ou dans les gants
+    else {
+        if (now - restStartTime >= restDuration) {
+            finishShot();
+            shotResting = false;
+            nextShotTime = now + 600;
+        }
     }
 }
 
@@ -736,6 +985,7 @@ function resetShotsFromGui() {
     shotCurve1 = null;
     shotCurve2 = null;
     shotGlobalT = 0;
+    shotResting = false;
     currentBallPos.copy(defaultStart);
     ballGroup.position.copy(currentBallPos);
 
@@ -774,10 +1024,25 @@ function buildGui() {
     cameraFolder.close();
 
     var murFolder = gui.addFolder("Mannequins (Phong)");
+
+    // Couleurs et reflets (Phong)
     murFolder.addColor(murParams, "color").name("Couleur").onChange(updateMurMaterial);
-    murFolder.addColor(murParams, "specular").name("Speculaire").onChange(updateMurMaterial);
+    murFolder.addColor(murParams, "emissive").name("Émissive").onChange(updateMurMaterial);
+    murFolder.addColor(murParams, "specular").name("Spéculaire").onChange(updateMurMaterial);
     murFolder.add(murParams, "shininess", 1, 100).step(1).name("Brillance").onChange(updateMurMaterial);
-    murFolder.add(murParams, "joinCoeff", 0.1, 1.2).step(0.05).name("Jointure G1").onChange(function () {
+
+    // Rendu, transparence et fil de fer
+    murFolder.add(murParams, "opacity", 0.0, 1.0).step(0.05).name("Opacité").onChange(function (val) {
+        // Active automatiquement la transparence si l'opacité passe sous 1.0
+        if (val < 1.0) murParams.transparent = true;
+        updateMurMaterial();
+    });
+    murFolder.add(murParams, "transparent").name("Transparence").onChange(updateMurMaterial);
+    murFolder.add(murParams, "wireframe").name("Fil de fer").onChange(updateMurMaterial);
+    murFolder.add(murParams, "flatShading").name("Ombrage plat").onChange(updateMurMaterial);
+
+    // Contrôle du raccordement géométrique G1
+    murFolder.add(murParams, "joinCoeff", 0.1, 1.5).step(0.05).name("Jointure G1 (k)").onChange(function () {
         rebuildDefenders(currentBallPos.clone());
     });
     murFolder.close();
@@ -799,6 +1064,7 @@ function buildGui() {
     curveFolder.add(curveParams, "quadOffsetZ", 0, 10).step(0.1).name("Hauteur P1");
     curveFolder.add(curveParams, "cubicOffsetX", -6, 6).step(0.1).name("Guidage X");
     curveFolder.add(curveParams, "cubicOffsetZ", 0, 8).step(0.1).name("Guidage Z");
+    curveFolder.add(curveParams, "junctionHeight", 2.25, 4.5).step(0.05).name("Hauteur sommet P2");
     curveFolder.close();
 
     cameraFolder.close();
@@ -849,6 +1115,5 @@ function init() {
     window.addEventListener("resize", onWindowResize, false);
 
     renduAnim();
-    window.setInterval(gameTick, 33);
     nextShotTime = shotParams.mode === "Automatique" ? performance.now() + 900 : Infinity;
 }
