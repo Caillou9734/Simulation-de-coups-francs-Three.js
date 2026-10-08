@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="fr">
+<head>
+    <meta charset="utf-8">
+    <title>Projet Three.js - Coups Francs</title>
+    
+    <!-- Liens vers libs à la racine de l'archive -->
+    <script type="text/javascript" charset="UTF-8" src="../../libs/three/three.js"></script>
+    <script type="text/javascript" src="../../libs/util/dat.gui.js"></script>
+    <script type="text/javascript" src="../../libs/util/Stats.js"></script>
+    <script type="text/javascript" src="../../libs/util/util.js"></script>
+    
+    <!-- Fichiers CSS et JS du sous-dossier Barbaux -->
+    <link rel="stylesheet" href="../CSS/style.css">
+    <script type="text/javascript" src="../JS/main.js"></script>
+</head>
+
+<body onload="init()">
+    <!-- Rendu WebGL -->
+    <div id="webgl"></div>
+
+    <!-- Affichage des scores (liste ordonnée + tableau) -->
+    <div id="panneau-score">
+        <h2>Coups Francs - Michel Platini</h2>
+        
+        <h3>Liste des tirs :</h3>
+        <ol id="liste-tirs">
+            <li id="tir-1">Tir 1 : En attente...</li>
+            <li id="tir-2">Tir 2 : En attente...</li>
+            <li id="tir-3">Tir 3 : En attente...</li>
+            <li id="tir-4">Tir 4 : En attente...</li>
+            <li id="tir-5">Tir 5 : En attente...</li>
+        </ol>
+
+        <h3>Tableau récapitulatif :</h3>
+        <table id="tableau-scores">
+            <thead>
+                <tr>
+                    <th>Tir N°</th>
+                    <th>Cible</th>
+                    <th>Résultat</th>
+                    <th>Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>1</td><td>-</td><td>-</td><td>0</td></tr>
+                <tr><td>2</td><td>-</td><td>-</td><td>0</td></tr>
+                <tr><td>3</td><td>-</td><td>-</td><td>0</td></tr>
+                <tr><td>4</td><td>-</td><td>-</td><td>0</td></tr>
+                <tr><td>5</td><td>-</td><td>-</td><td>0</td></tr>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="3">Total</th>
+                    <th id="score-total">0 pt</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <!-- Zone de débogage -->
+    <div id="result"></div>
+</body>
+</html>

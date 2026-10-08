@@ -1,0 +1,86 @@
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    background-color: #ffffff;
+}
+
+#webgl {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* Panneau latéral pour les scores des 5 tirs */
+#panneau-score {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 12px 16px;
+    border: 1px solid #999;
+    border-radius: 6px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    font-size: 13px;
+    max-width: 320px;
+}
+
+#panneau-score h2 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    color: #111;
+}
+
+#panneau-score h3 {
+    margin: 6px 0 2px 0;
+    font-size: 12px;
+    color: #444;
+}
+
+#liste-tirs {
+    margin: 4px 0 8px 18px;
+    padding: 0;
+}
+
+/* Bordures visibles obligatoires pour le sujet */
+#tableau-scores {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+}
+
+#tableau-scores th, 
+#tableau-scores td {
+    border: 2px solid #222; /* Bordures nettes */
+    padding: 3px 6px;
+    text-align: center;
+}
+
+#tableau-scores th {
+    background-color: #e5e5e5;
+}
+
+#tableau-scores tfoot tr {
+    background-color: #d1e7dd;
+    font-weight: bold;
+}
+
+#result {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 5;
+    color: #333;
+    font-family: monospace;
+}
+
+/* Les panneaux dat.GUI doivent rester au-dessus du canvas WebGL. */
+.dg.ac {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 20;
+}
